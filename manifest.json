@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "Yapi请求插件",
+  "description": "YApi 跨域请求",
+  "version": "3.1.1",
+  "action": {
+    "default_icon": "img/icon.png",
+    "default_popup": "popup.html"
+  },
+  "icons": {
+    "128": "img/icon.png",
+    "48": "img/icon.png",
+    "16": "img/icon.png"
+  },
+  "permissions": [
+    "webRequest",
+    "declarativeNetRequest"
+  ],
+  "background": {
+    "service_worker": "js/service_worker/background.js"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "js/inject/index.js"
+      ],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ]
+    }
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "js/content/index.js"
+      ]
+    }
+  ]
+}
