@@ -1,64 +1,260 @@
-<!doctype html>
+<!DOCTYPE html>
 <html>
 
 <head>
     <title>crossRequest</title>
-    <meta charset="utf8"/>
+    <meta charset="UTF-8">
     <style>
         * {
-            margin: 8px;
-        }
-
-        a {
-            text-decoration: none
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
 
         body {
-            font-family: "Segoe UI", "Lucida Grande", Tahoma, sans-serif;
-            font-size: 100%;
-        }
-
-        .main {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            color: #333;
+            background: #f5f5f5;
             width: 320px;
+            padding: 20px;
         }
 
-        .content {
-            line-height: 25px;
-            min-height: 100px;
-        }
-
-        .add {
-            line-height: 40px;
+        .header {
+            background: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             margin-bottom: 20px;
         }
 
-        .add input {
+        .header h1 {
+            font-size: 18px;
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+            margin-bottom: 8px;
+        }
+
+        .header a {
+            color: #3498db;
+            text-decoration: none;
+            transition: color 0.3s;
+        }
+
+        .header a:hover {
+            color: #2980b9;
+        }
+
+        .config-section {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group:last-child {
+            margin-bottom: 0;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #2c3e50;
+        }
+
+        input[type="number"] {
+            width: 100%;
+            padding: 8px 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.3s;
+            outline: none;
+        }
+
+        input[type="number"]:focus {
+            border-color: #3498db;
+            box-shadow: 0 0 0 3px rgba(52,152,219,0.1);
+        }
+
+        input[type="number"]:hover {
+            border-color: #bdc3c7;
+        }
+
+        button {
+            width: 100%;
+            padding: 10px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        button:hover {
+            background: #2980b9;
+            transform: translateY(-1px);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .status {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 13px;
+            display: none;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        /* 添加输入框的步进器样式 */
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button {
+            opacity: 1;
+            height: 24px;
+            background: #f8f9fa;
+            border-left: 2px solid #e0e0e0;
+            cursor: pointer;
+        }
+
+        /* 添加工具提示 */
+        .tooltip {
+            position: relative;
+            display: inline-block;
+        }
+
+        .tooltip .tooltiptext {
+            visibility: hidden;
             width: 200px;
-            line-height: 25px;
+            background-color: #555;
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 5px;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%;
+            left: 50%;
+            transform: translateX(-50%);
+            opacity: 0;
+            transition: opacity 0.3s;
         }
 
-        .add button {
-            width: 70px;
-            line-height: 25px;
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
         }
 
-        .url {
-            min-width: 200px;
-            display: inline-block
+        .footer {
+            margin-top: 20px;
+            text-align: center;
+            padding: 15px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
 
-        .del {
-            cursor: pointer
+        .footer a {
+            color: #3498db;
+            text-decoration: none;
+            transition: color 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .footer a:hover {
+            color: #2980b9;
+        }
+
+        .footer .icon {
+            width: 16px;
+            height: 16px;
+            background: #3498db;
+            border-radius: 3px;
+            display: inline-block;
         }
     </style>
 </head>
 
 <body>
-<div class="main">
-    <p>该扩展仅支持 YApi 接口管理平台.</p>
-    <p>If you need Help, <a href="https://github.com/LuYongwang/cross-request" target="_blank">follow the page.</a></p>
-    <br>
-</div>
+    <div class="header">
+        <h1>YApi 请求插件</h1>
+        <p>全新支持ChromeV3重构插件</p>
+        <p>If you need Help, <a href="https://github.com/LuYongwang/cross-request" target="_blank">follow the page</a></p>
+    </div>
+
+    <div class="config-section">
+        <div class="form-group">
+            <label for="timeout" class="tooltip">
+                请求超时时间 (毫秒)
+                <span class="tooltiptext">设置请求超时的时间限制，超过此时间将触发重试</span>
+            </label>
+            <input type="number" id="timeout" min="1000" step="1000" placeholder="例如: 5000">
+        </div>
+        <div class="form-group">
+            <label for="maxRetries" class="tooltip">
+                最大重试次数
+                <span class="tooltiptext">请求失败时的最大重试次数</span>
+            </label>
+            <input type="number" id="maxRetries" min="0" max="10" placeholder="例如: 3">
+        </div>
+        <div class="form-group">
+            <label for="retryDelay" class="tooltip">
+                重试延迟时间 (毫秒)
+                <span class="tooltiptext">两次重试之间的等待时间</span>
+            </label>
+            <input type="number" id="retryDelay" min="100" step="100" placeholder="例如: 1000">
+        </div>
+        <button id="save">保存配置</button>
+    </div>
+    <div id="status" class="status"></div>
+
+    <div class="footer">
+        <a href="https://devtools.yongwang.lu/" target="_blank">
+            <span class="icon"></span>
+            DevTools - 高效开发工具集成平台
+        </a>
+    </div>
+    <script src="js/popup.js"></script>
 </body>
 
 </html>

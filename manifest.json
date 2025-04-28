@@ -14,10 +14,16 @@
   },
   "permissions": [
     "webRequest",
-    "declarativeNetRequest"
+    "declarativeNetRequest",
+    "declarativeNetRequestFeedback",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
   ],
   "background": {
-    "service_worker": "js/service_worker/background.js"
+    "service_worker": "js/service_worker/background.js",
+    "type": "module"
   },
   "web_accessible_resources": [
     {
@@ -30,9 +36,6 @@
       ]
     }
   ],
-  "host_permissions": [
-    "<all_urls>"
-  ],
   "content_scripts": [
     {
       "matches": [
@@ -43,5 +46,8 @@
         "js/content/index.js"
       ]
     }
-  ]
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
 }
