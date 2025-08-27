@@ -74,7 +74,7 @@
             let requestId = guid();
 
             // 处理文件上传
-            if (req.files) {
+            if (req.files && req.files.length > 0) {
                 req.data = handleFileUpload(req.files);
                 delete req.files;
             }
