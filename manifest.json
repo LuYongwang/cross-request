@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Yapi请求插件",
   "description": "YApi 跨域请求",
-  "version": "3.1.2",
+  "version": "3.1.3",
   "action": {
     "default_icon": "img/icon.png",
     "default_popup": "popup.html"
@@ -13,10 +13,11 @@
     "16": "img/icon.png"
   },
   "permissions": [
-    "webRequest",
     "declarativeNetRequest",
     "declarativeNetRequestFeedback",
-    "storage"
+    "storage",
+    "activeTab",
+    "webRequest"
   ],
   "host_permissions": [
     "<all_urls>"

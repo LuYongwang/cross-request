@@ -1,6 +1,6 @@
 (function (globalThis) {
     // 请求配置
-    let CONFIG = {
+    const DEFAULT_CONFIG = {
         timeout: 5000,
         maxRetries: 3,
         retryDelay: 1000,
@@ -10,26 +10,27 @@
             max: 100
         }
     };
+    
+    let CONFIG = { ...DEFAULT_CONFIG };
 
     // 加载配置
     async function loadConfig() {
         try {
             const result = await chrome.storage.sync.get('requestConfig');
             if (result.requestConfig) {
-                // 确保所有必要的字段都存在
                 CONFIG = {
-                    ...CONFIG,
+                    ...DEFAULT_CONFIG,
                     ...result.requestConfig,
-                    // 确保这些字段不会被覆盖
-                    allowedMethods: CONFIG.allowedMethods,
+                    allowedMethods: DEFAULT_CONFIG.allowedMethods,
                     rateLimit: {
-                        ...CONFIG.rateLimit,
+                        ...DEFAULT_CONFIG.rateLimit,
                         ...(result.requestConfig.rateLimit || {})
                     }
                 };
             }
         } catch (error) {
             console.warn('Failed to load config:', error);
+            CONFIG = { ...DEFAULT_CONFIG };
         }
     }
 
@@ -67,13 +68,12 @@
     chrome.storage.onChanged.addListener((changes, namespace) => {
         if (namespace === 'sync' && changes.requestConfig) {
             const newConfig = changes.requestConfig.newValue;
-            // 确保配置更新不会破坏核心功能
             CONFIG = {
-                ...CONFIG,
+                ...DEFAULT_CONFIG,
                 ...newConfig,
-                allowedMethods: CONFIG.allowedMethods,
+                allowedMethods: DEFAULT_CONFIG.allowedMethods,
                 rateLimit: {
-                    ...CONFIG.rateLimit,
+                    ...DEFAULT_CONFIG.rateLimit,
                     ...(newConfig.rateLimit || {})
                 }
             };
@@ -82,6 +82,11 @@
 
     // 初始化加载配置
     loadConfig();
+    
+    // 定期清理过期的CORS规则
+    setInterval(() => {
+        corsRuleManager.cleanup();
+    }, 60000); // 每分钟清理一次
 
     // 请求计数器
     const requestCounters = new Map();
@@ -114,45 +119,97 @@
         return true;
     }
 
-    // 添加CORS规则
-    async function addCorsRule(url) {
-        try {
-            const urlObj = new URL(url);
-            const ruleId = Math.floor(Math.random() * 1000000);
-            
-            // 先移除可能存在的相同规则
-            await chrome.declarativeNetRequest.updateDynamicRules({
-                removeRuleIds: [ruleId]
-            });
-
-            const rule = {
-                id: ruleId,
-                priority: 1,
-                action: {
-                    type: "modifyHeaders",
-                    responseHeaders: [
-                        { header: "Access-Control-Allow-Origin", operation: "set", value: "*" },
-                        { header: "Access-Control-Allow-Methods", operation: "set", value: "GET, POST, PUT, DELETE, PATCH, OPTIONS" },
-                        { header: "Access-Control-Allow-Headers", operation: "set", value: "*" },
-                        { header: "Access-Control-Allow-Credentials", operation: "set", value: "true" }
-                    ]
-                },
-                condition: {
-                    urlFilter: urlObj.origin + "/*",
-                    resourceTypes: ["xmlhttprequest"]
+    // CORS规则管理器
+    const corsRuleManager = {
+        rules: new Map(),
+        nextRuleId: 1,
+        
+        generateRuleId() {
+            // 确保返回一个唯一的正整数
+            const id = this.nextRuleId++;
+            // 双重确保返回整数类型
+            return parseInt(id.toString(), 10);
+        },
+        
+        async addRule(url) {
+            try {
+                const urlObj = new URL(url);
+                const ruleId = this.generateRuleId();
+                
+                // 先清理可能存在的旧规则
+                const existingRules = Array.from(this.rules.keys());
+                if (existingRules.length > 0) {
+                    try {
+                        await chrome.declarativeNetRequest.updateDynamicRules({
+                            removeRuleIds: existingRules
+                        });
+                        this.rules.clear();
+                    } catch (cleanupError) {
+                        console.warn('Failed to cleanup existing rules:', cleanupError);
+                    }
                 }
-            };
-
-            await chrome.declarativeNetRequest.updateDynamicRules({
-                addRules: [rule]
-            });
-
-            return ruleId;
-        } catch (error) {
-            console.warn('Failed to add CORS rule:', error);
-            return null;
+                
+                const rule = {
+                    id: ruleId,
+                    priority: 1,
+                    action: {
+                        type: "modifyHeaders",
+                        responseHeaders: [
+                            { header: "Access-Control-Allow-Origin", operation: "set", value: "*" },
+                            { header: "Access-Control-Allow-Methods", operation: "set", value: "GET, POST, PUT, DELETE, PATCH, OPTIONS" },
+                            { header: "Access-Control-Allow-Headers", operation: "set", value: "*" },
+                            { header: "Access-Control-Allow-Credentials", operation: "set", value: "true" }
+                        ]
+                    },
+                    condition: {
+                        urlFilter: urlObj.origin + "/*",
+                        resourceTypes: ["xmlhttprequest"]
+                    }
+                };
+                
+                await chrome.declarativeNetRequest.updateDynamicRules({
+                    addRules: [rule]
+                });
+                
+                this.rules.set(ruleId, { url: urlObj.origin, timestamp: Date.now() });
+                return ruleId;
+            } catch (error) {
+                console.warn('Failed to add CORS rule:', error);
+                return null;
+            }
+        },
+        
+        async removeRule(ruleId) {
+            if (!ruleId) return;
+            
+            try {
+                await chrome.declarativeNetRequest.updateDynamicRules({
+                    removeRuleIds: [ruleId]
+                });
+                this.rules.delete(ruleId);
+            } catch (error) {
+                console.warn('Failed to remove CORS rule:', error);
+            }
+        },
+        
+        async cleanup() {
+            const now = Date.now();
+            const expiredRules = [];
+            
+            for (const [ruleId, rule] of this.rules.entries()) {
+                if (now - rule.timestamp > 300000) { // 5分钟过期
+                    expiredRules.push(ruleId);
+                }
+            }
+            
+            if (expiredRules.length > 0) {
+                await chrome.declarativeNetRequest.updateDynamicRules({
+                    removeRuleIds: expiredRules
+                });
+                expiredRules.forEach(id => this.rules.delete(id));
+            }
         }
-    }
+    };
 
     // 重试机制
     async function fetchWithRetry(req, retryCount = 0) {
@@ -172,60 +229,88 @@
             const headers = req.headers || {};
             
             // 添加CORS规则
-            ruleId = await addCorsRule(req.url);
+            ruleId = await corsRuleManager.addRule(req.url);
             
+            // 构建请求配置
             const reqConfig = {
                 method: method,
-                headers: headers,
+                headers: { ...headers }, // 确保headers被正确复制
                 mode: 'cors',
                 credentials: 'include',
                 signal: controller.signal
             };
 
-            if (method === 'POST') {
+            // 处理POST请求的body和Content-Type
+            if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
                 const contentType = headers['Content-Type'] || headers['content-type'] || "application/json";
+                
                 if (contentType.includes("json")) {
                     reqConfig.body = typeof data === 'string' ? data : JSON.stringify(data);
                 } else if (contentType.includes("x-www-form-urlencoded")) {
                     reqConfig.body = new URLSearchParams(data);
+                } else if (contentType.includes("multipart/form-data")) {
+                    reqConfig.body = data; // FormData对象
                 } else {
                     reqConfig.body = data;
                 }
+                
+                // 确保Content-Type被正确设置
+                if (!reqConfig.headers['Content-Type'] && !reqConfig.headers['content-type']) {
+                    reqConfig.headers['Content-Type'] = contentType;
+                }
             }
+
+            // 记录请求日志
+            console.log('🚀 [Cross-Request] 发起请求:', {
+                url: req.url,
+                method: method,
+                headers: reqConfig.headers,
+                body: reqConfig.body,
+                timestamp: new Date().toISOString()
+            });
 
             const response = await fetch(req.url, reqConfig);
             
-            // 清理超时控制器
+            // 记录响应日志
+            console.log('✅ [Cross-Request] 收到响应:', {
+                url: req.url,
+                status: response.status,
+                statusText: response.statusText,
+                headers: Object.fromEntries(response.headers.entries()),
+                timestamp: new Date().toISOString()
+            });
+            
+            // 清理资源
             if (timeoutId) {
                 clearTimeout(timeoutId);
                 timeoutId = null;
             }
 
-            // 清理CORS规则
             if (ruleId) {
-                await chrome.declarativeNetRequest.updateDynamicRules({
-                    removeRuleIds: [ruleId]
-                });
+                await corsRuleManager.removeRule(ruleId);
                 ruleId = null;
             }
 
             return response;
         } catch (error) {
-            // 清理超时控制器
+            // 记录错误日志
+            console.error('❌ [Cross-Request] 请求失败:', {
+                url: req.url,
+                method: req.method || 'GET',
+                error: error.message,
+                name: error.name,
+                retryCount: retryCount,
+                timestamp: new Date().toISOString()
+            });
+            
+            // 清理资源
             if (timeoutId) {
                 clearTimeout(timeoutId);
                 timeoutId = null;
             }
 
-            // 清理CORS规则
             if (ruleId) {
-                try {
-                    await chrome.declarativeNetRequest.updateDynamicRules({
-                        removeRuleIds: [ruleId]
-                    });
-                } catch (e) {
-                    console.warn('Failed to remove CORS rule:', e);
-                }
+                await corsRuleManager.removeRule(ruleId);
                 ruleId = null;
             }
 
@@ -238,26 +323,12 @@
             if (retryCount < CONFIG.maxRetries && 
                 (error.name === 'AbortError' || error.name === 'TypeError' || error.message.includes('network'))) {
                 const delay = CONFIG.retryDelay * (retryCount + 1);
-                console.warn(`Retrying request (${retryCount + 1}/${CONFIG.maxRetries}) after ${delay}ms`);
+                console.warn(`🔄 [Cross-Request] 重试请求 (${retryCount + 1}/${CONFIG.maxRetries}) 延迟 ${delay}ms`);
                 await new Promise(resolve => setTimeout(resolve, delay));
                 return fetchWithRetry(req, retryCount + 1);
             }
 
             throw error;
-        } finally {
-            // 确保清理所有资源
-            if (timeoutId) {
-                clearTimeout(timeoutId);
-            }
-            if (ruleId) {
-                try {
-                    await chrome.declarativeNetRequest.updateDynamicRules({
-                        removeRuleIds: [ruleId]
-                    });
-                } catch (e) {
-                    console.warn('Failed to remove CORS rule in finally block:', e);
-                }
-            }
         }
     }
 
@@ -336,7 +407,23 @@
 
         connect.onMessage.addListener(async (msg) => {
             try {
+                console.log('📨 [Cross-Request] 收到请求消息:', {
+                    nodeId: msg.nodeId,
+                    requestId: msg.req.requestId,
+                    url: msg.req.url,
+                    method: msg.req.method,
+                    timestamp: new Date().toISOString()
+                });
+                
                 const resData = await fetchData(msg.req);
+                
+                console.log('📤 [Cross-Request] 发送成功响应:', {
+                    nodeId: msg.nodeId,
+                    requestId: msg.req.requestId,
+                    status: resData.status,
+                    timestamp: new Date().toISOString()
+                });
+                
                 connect.postMessage({
                     type: "fetch_callback",
                     nodeId: msg.nodeId,
@@ -345,6 +432,13 @@
                     res: resData
                 });
             } catch (error) {
+                console.log('📤 [Cross-Request] 发送错误响应:', {
+                    nodeId: msg.nodeId,
+                    requestId: msg.req.requestId,
+                    error: error.message,
+                    timestamp: new Date().toISOString()
+                });
+                
                 connect.postMessage({
                     type: "fetch_callback",
                     nodeId: msg.nodeId,

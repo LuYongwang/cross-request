@@ -32,7 +32,6 @@
     // 处理文件上传
     function handleFileUpload(files) {
         if (!files) return null;
-        
         const formData = new FormData();
         for (const [key, fileId] of Object.entries(files)) {
             const fileInput = document.getElementById(fileId);
@@ -73,34 +72,59 @@
             // 分配请求UUID
             let requestId = guid();
 
-            // 处理文件上传
-            if (req.files && req.files.length > 0) {
+            // 处理文件上传（暂时禁用）
+            if (req.files && Object.keys(req.files).length > 0) {
                 req.data = handleFileUpload(req.files);
                 delete req.files;
             }
 
             // 应用请求拦截器
             for (const interceptor of requestInterceptors) {
-                req = interceptor(req);
+                try {
+                    req = interceptor(req);
+                } catch (interceptorError) {
+                    console.warn('Request interceptor error:', interceptorError);
+                }
             }
 
             // 记录请求到全局
             win['cross_request_' + requestId] = {
                 success: function (res, header, data) {
-                    // 应用响应拦截器
-                    for (const interceptor of responseInterceptors) {
-                        res = interceptor(res);
-                    }
-                    if (typeof req.success === 'function') {
-                        req.success(res, header, data);
+                    try {
+                        // 应用响应拦截器
+                        for (const interceptor of responseInterceptors) {
+                            res = interceptor(res);
+                        }
+                        if (typeof req.success === 'function') {
+                            req.success(res, header, data);
+                        }
+                    } catch (error) {
+                        console.error('Response interceptor error:', error);
+                        if (typeof req.error === 'function') {
+                            req.error(error);
+                        }
                     }
                 },
                 error: function (error, header, data) {
-                    if (typeof req.error === 'function') {
-                        req.error(error, header, data);
+                    try {
+                        if (typeof req.error === 'function') {
+                            req.error(error, header, data);
+                        }
+                    } catch (errorHandlerError) {
+                        console.error('Error handler error:', errorHandlerError);
                     }
                 }
             };
+
+            // 记录请求日志
+            console.log('🎯 [Cross-Request] 页面发起请求:', {
+                requestId: requestId,
+                url: req.url,
+                method: req.method || "GET",
+                headers: req.headers || {},
+                data: req.data || "",
+                timestamp: new Date().toISOString()
+            });
 
             // 发送请求通知
             win.postMessage({
@@ -122,6 +146,7 @@
             // 返回请求ID，可用于取消请求
             return requestId;
         } catch (error) {
+            console.error('crossRequest error:', error);
             if (typeof req.error === 'function') {
                 req.error(error);
             }
@@ -143,9 +168,9 @@
     };
 
     win.addEventListener('message', (e) => {
-        if (!e || !e.data || (typeof e.data) === 'string' || 
-            e.data.source !== 'cross_request_content' || 
-            !e.data.nodeId || 
+        if (!e || !e.data || (typeof e.data) === 'string' ||
+            e.data.source !== 'cross_request_content' ||
+            !e.data.nodeId ||
             e.data.nodeId !== randomId) {
             return;
         }
@@ -153,8 +178,16 @@
         if (e.data.type === "fetch_callback") {
             let requestId = e.data['requestId'];
             let reqFun = win['cross_request_' + requestId];
-            
+
+            console.log('📥 [Cross-Request] 页面收到响应:', {
+                requestId: requestId,
+                success: e.data.success,
+                status: e.data.res?.status,
+                timestamp: new Date().toISOString()
+            });
+
             if (!reqFun) {
+                console.warn('⚠️ [Cross-Request] 请求已被取消:', requestId);
                 return; // 请求已被取消
             }
 
