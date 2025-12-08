@@ -16,50 +16,75 @@
         reconnectAttempts: 0,
         maxReconnectAttempts: 5,
         reconnectDelay: 1000,
-        
+
         setupConnection() {
             // 防止重复连接
             if (this.isConnecting) {
                 return;
             }
-            
+
             try {
                 this.isConnecting = true;
                 this.connect = chrome.runtime.connect({name: "cross_request-bridge"});
-                
+
+                // 绑定消息监听器
+                this.bindMessageListener();
+
                 this.connect.onDisconnect.addListener(() => {
                     this.isConnecting = false;
                     this.connect = null;
-                    
+
                     if (chrome.runtime.lastError) {
                         const error = chrome.runtime.lastError;
                         console.warn('Connection lost:', error.message);
-                        
+
                         // 如果是扩展上下文失效，通知用户刷新页面
                         if (error.message.includes('Extension context invalidated')) {
                             this.showNotification('扩展已更新，请刷新页面', 'error');
                             return;
                         }
                     }
-                    
+
                     // 重连逻辑
                     this.handleReconnect();
                 });
-                
+
                 // 重置重连计数
                 this.reconnectAttempts = 0;
-                
+
             } catch (error) {
                 this.isConnecting = false;
                 console.warn('Failed to setup connection:', error);
-                
+
                 if (error.message.includes('Extension context invalidated')) {
                     this.showNotification('扩展已更新，请刷新页面', 'error');
                     return;
                 }
-                
+
                 this.handleReconnect();
             }
+        },
+
+        bindMessageListener() {
+            if (!this.connect) {
+                return;
+            }
+
+            this.connect.onMessage.addListener((msg) => {
+                if (msg.type !== 'fetch_callback') {
+                    return;
+                }
+                console.log('📥 [Cross-Request] Content Script 收到响应:', {
+                    nodeId: msg.nodeId,
+                    requestId: msg.requestId,
+                    success: msg.success,
+                    timestamp: new Date().toISOString()
+                });
+
+                msg['source'] = "cross_request_content";
+                // 透传给页面Window
+                win.postMessage(msg, location.origin);
+            });
         },
         
         handleReconnect() {
@@ -68,15 +93,23 @@
                 this.showNotification('连接失败，请检查扩展状态', 'error');
                 return;
             }
-            
+
             this.reconnectAttempts++;
             const delay = this.reconnectDelay * this.reconnectAttempts;
-            
+
             console.log(`Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-            
+
             setTimeout(() => {
                 this.setupConnection();
             }, delay);
+        },
+
+        // 确保连接可用并获取连接对象
+        ensureConnection() {
+            if (!this.connect) {
+                this.setupConnection();
+            }
+            return this.connect;
         },
         
         showNotification(message, type = 'info') {
@@ -113,14 +146,23 @@
             return;
         }
 
-        // 检查连接状态并尝试重新连接
-        if (!connectionManager.connect) {
-            connectionManager.setupConnection();
+        console.log('📤 [Cross-Request] Content Script 发送请求:', {
+            nodeId: e.data.nodeId,
+            requestId: e.data.req.requestId,
+            url: e.data.req.url,
+            method: e.data.req.method,
+            timestamp: new Date().toISOString()
+        });
+
+        // 确保连接可用
+        const connection = connectionManager.ensureConnection();
+        if (!connection) {
+            console.error('Failed to establish connection');
             return;
         }
-        
+
         try {
-            connectionManager.connect.postMessage(e.data);
+            connection.postMessage(e.data);
         } catch (error) {
             console.warn('Failed to send message:', error);
             if (error.message.includes('Extension context invalidated')) {
@@ -132,18 +174,7 @@
         }
     });
 
-    // 监听来自扩展的消息
-    if (connectionManager.connect) {
-        connectionManager.connect.onMessage.addListener((msg) => {
-            if (msg.type !== 'fetch_callback') {
-                return;
-            }
-            msg['source'] = "cross_request_content";
-            // 透传给页面Window
-            win.postMessage(msg, location.origin);
-        });
-    }
-
+  
     // 给Window注入JS
     function injectJs(path, callback) {
         let s = document.createElement('script');
